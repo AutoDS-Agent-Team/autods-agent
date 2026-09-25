@@ -20,3 +20,15 @@ def test_auth_and_write_limits_use_independent_buckets() -> None:
         asyncio.run(limit("write")(request("another-user")))
     finally:
         settings.app_env, settings.rate_limit_auth_per_minute, settings.rate_limit_write_per_minute = previous_env, previous_auth, previous_write; _windows.clear()
+
+
+def test_development_falls_back_when_redis_is_unavailable() -> None:
+    settings = get_settings(); previous_env, previous_url, previous_auth = settings.app_env, settings.redis_url, settings.rate_limit_auth_per_minute
+    settings.app_env, settings.redis_url, settings.rate_limit_auth_per_minute = "development", "redis://127.0.0.1:1/0", 1
+    _windows.clear()
+    try:
+        asyncio.run(limit("auth")(request("dev-fallback")))
+        with pytest.raises(ApplicationError):
+            asyncio.run(limit("auth")(request("dev-fallback")))
+    finally:
+        settings.app_env, settings.redis_url, settings.rate_limit_auth_per_minute = previous_env, previous_url, previous_auth; _windows.clear()

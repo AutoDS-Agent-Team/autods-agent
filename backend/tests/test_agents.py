@@ -7,7 +7,7 @@ from app.services.agent_service import analyze_profile
 
 def profile() -> DatasetProfileResponse:
     return DatasetProfileResponse(
-        dataset=DatasetResponse(id="dataset", original_filename="sample.csv", stored_filename="internal.csv", file_size=10, row_count=12, column_count=2, has_header=True, created_at=datetime.now(timezone.utc)),
+        dataset=DatasetResponse(id="dataset", original_filename="sample.csv", file_size=10, row_count=12, column_count=2, has_header=True, created_at=datetime.now(timezone.utc)),
         summary=DatasetProfileSummary(row_count=12, column_count=2, duplicate_row_count=0, total_missing_values=3, numerical_columns=["Age"], categorical_columns=["Survived"], constant_columns=[], possible_id_columns=[]),
         columns=[ColumnProfile(name="Age", dtype="float", logical_type="numerical", missing_count=3, missing_percentage=25.0, unique_count=9, is_constant=False, is_possible_id=False), ColumnProfile(name="Survived", dtype="int", logical_type="numerical", missing_count=0, missing_percentage=0.0, unique_count=2, is_constant=False, is_possible_id=False)],
         correlations=[],

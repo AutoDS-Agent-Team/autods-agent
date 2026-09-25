@@ -107,6 +107,35 @@ def _safe_provider_recommendations(candidate: InsightReflectionResponse, allowed
     return safe
 
 
+def _safe_provider_explanations(candidate: InsightReflectionResponse, verified: InsightReflectionResponse, allowed_features: set[str]) -> dict[str, Any]:
+    """Keep provider prose only when it cannot introduce unverified facts.
+
+    Deterministic evidence remains the leading statement.  Provider prose may
+    add qualitative interpretation, but not numerical claims, code actions, or
+    feature names outside the persisted explainability result.
+    """
+    prohibited = re.compile(r"\b(?:sql|shell|command|import|eval|exec|path|file system)\b", re.I)
+
+    def safe_text(value: str) -> str | None:
+        value = value.strip()
+        if not value or re.search(r"\d", value) or prohibited.search(value):
+            return None
+        return value
+
+    summary = safe_text(candidate.executive_summary)
+    assessment = safe_text(candidate.model_assessment)
+    strengths = [item for item in (safe_text(value) for value in candidate.strengths) if item]
+    weaknesses = [item for item in (safe_text(value) for value in candidate.weaknesses) if item]
+    important_features = [item for item in candidate.important_features if item.feature in allowed_features and safe_text(item.explanation)]
+    return {
+        "executive_summary": f"{verified.executive_summary} AI interpretation: {summary}" if summary else verified.executive_summary,
+        "model_assessment": f"{verified.model_assessment} AI interpretation: {assessment}" if assessment else verified.model_assessment,
+        "strengths": list(dict.fromkeys([*verified.strengths, *strengths])),
+        "weaknesses": list(dict.fromkeys([*verified.weaknesses, *weaknesses])),
+        "important_features": important_features or verified.important_features,
+    }
+
+
 def _link_research_to_recommendations(recommendations: list[InsightRecommendation]) -> tuple[list[InsightRecommendation], list[ResearchEvidence]]:
     linked, evidence_by_url = [], {}
     for recommendation in recommendations:
@@ -212,10 +241,11 @@ def create_reflection(experiment_id: str, user_id: str, database: Session, setti
             raw = provider.generate_structured(prompt, InsightReflectionResponse.model_json_schema())
             candidate = InsightReflectionResponse.model_validate_json(raw) if isinstance(raw, str) else InsightReflectionResponse.model_validate(raw)
             recommendations = _safe_provider_recommendations(candidate, set(features))
+            explanations = _safe_provider_explanations(candidate, verified, set(features))
             recommendations, recommendation_evidence = _link_research_to_recommendations(recommendations or verified.recommendations)
             evidence = {item.source_url: item for item in deterministic_context["research_evidence"]}
             evidence.update({item.source_url: item for item in recommendation_evidence})
-            return verified.model_copy(update={"recommendations": recommendations, **deterministic_context, "research_evidence": list(evidence.values()), "research_status": "EVIDENCE_FOUND" if evidence else "NO_RELEVANT_EVIDENCE", "provider_used": provider.name, "status": "COMPLETED"})
+            return verified.model_copy(update={**explanations, "recommendations": recommendations, **deterministic_context, "research_evidence": list(evidence.values()), "research_status": "EVIDENCE_FOUND" if evidence else "NO_RELEVANT_EVIDENCE", "provider_used": provider.name, "status": "COMPLETED"})
         except (ProviderFailure, ValidationError):
             continue
     recommendations, recommendation_evidence = _link_research_to_recommendations(verified.recommendations)

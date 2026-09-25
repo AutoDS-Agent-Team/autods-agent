@@ -27,3 +27,15 @@ def test_google_identity_is_verified_and_links_existing_email(test_app: FastAPI,
     assert "password_hash" not in google.text and "mock-google-credential" not in google.text
     again = request(test_app, "POST", "/api/v1/auth/google", json={"credential":"mock-google-credential"})
     assert again.status_code == 200 and again.json()["user"]["id"] == google.json()["user"]["id"]
+
+
+def test_google_identity_rejects_unverified_email_and_conflicting_subject(test_app: FastAPI, monkeypatch) -> None:
+    monkeypatch.setattr(auth_service.id_token, "verify_oauth2_token", lambda *_args: {"sub": "subject-a", "email": "new@example.com", "email_verified": False})
+    rejected = request(test_app, "POST", "/api/v1/auth/google", json={"credential": "unverified"})
+    assert rejected.status_code == 400
+
+    monkeypatch.setattr(auth_service.id_token, "verify_oauth2_token", lambda *_args: {"sub": "subject-a", "email": "conflict@example.com", "email_verified": True})
+    assert request(test_app, "POST", "/api/v1/auth/google", json={"credential": "first"}).status_code == 200
+    monkeypatch.setattr(auth_service.id_token, "verify_oauth2_token", lambda *_args: {"sub": "subject-b", "email": "conflict@example.com", "email_verified": True})
+    conflict = request(test_app, "POST", "/api/v1/auth/google", json={"credential": "conflict"})
+    assert conflict.status_code == 400

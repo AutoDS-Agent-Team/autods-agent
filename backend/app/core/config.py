@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://localhost:6379/1"
     celery_task_always_eager: bool = False
     celery_task_max_retries: int = Field(default=1, ge=0, le=3)
+    expected_migration_revision: str = "20260925_14"
     jwt_secret_key: str = Field(min_length=32, default="change-this-development-secret-before-production")
     jwt_algorithm: str = "HS256"
     jwt_access_token_minutes: int = Field(default=60, ge=5, le=1440)

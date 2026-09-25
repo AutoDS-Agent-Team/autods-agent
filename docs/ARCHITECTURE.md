@@ -1,125 +1,276 @@
-# Architecture
+# AutoDS-Agent Architecture
 
-## General data-science extension
+## Purpose and trust rule
+
+AutoDS-Agent is an authenticated web application for dataset profiling, safe ML workflow automation, verified analytics, reports, and context-aware questions.
+
+Every LLM-controlled action follows one mandatory boundary:
 
 ```text
-                DATASET
-                   │
-                   ▼
-         Data Analyst Agent
-                   │
-        deterministic profiling
-                   │
-                   ▼
-       Auto Problem Detection
-                   │
-       ┌───────────┼────────────┐
-       ▼           ▼            ▼
- Supervised    Unsupervised   Time Series
-       │           │            │
-       ▼           ▼            ▼
- ML Planner    Safe Planner   Forecast Planner
-       │           │            │
-       └───────────┼────────────┘
-                   ▼
-           Trusted ML Engine
-                   │
-                   ▼
-        Verified Results Store
-                   │
-          ┌────────┴────────┐
-          ▼                 ▼
- Insight/Reflection      Ask AutoDS
-                            │
-                     Question Planner
-                            │
-                     Pydantic Validation
-                            │
-                     Trusted Analytics
-                            │
-                     Verified Answer
+LLM -> structured plan -> Pydantic validation -> allowlisted trusted Python -> verified persisted result
 ```
 
-Feature roles, target scores, task compatibility, aggregates, correlations, anomaly scores, forecast metrics, and model metrics are calculated by deterministic trusted code. LLMs do not calculate arbitrary dataset statistics or model metrics. Unsupported questions return a missing-evidence response rather than an invented answer.
+LLMs can plan or explain. They cannot execute arbitrary code, query the database directly, read arbitrary files, or invent dataset/model metrics.
 
-The analytics engine accepts only enumerated operations, aggregations, and filter operators, with at most five AND filters, two group-by columns, and 100 result rows. It accepts no SQL, Python expressions, imports, paths, URLs, `eval`, `exec`, or shell input.
+## Complete system overview
+
+```text
+ Optional advisory providers
+ ┌───────────────────────────┐
+ │ Gemini primary | Ollama   │
+ └─────────────┬─────────────┘
+               │ structured plans / bounded explanation only
+               ▼
+┌──────────┐  ┌─────────────────────────────────────────────────────────────┐
+│ Browser  │  │ FastAPI application                                           │
+│ React UI │─►│ auth · owner scope · Pydantic schemas · routes · rate limits │
+└────▲─────┘  └───┬───────────────────┬──────────────────┬──────────────────┘
+     │            │                   │                  │
+     │            ▼                   ▼                  ▼
+     │     Dataset services     Trusted ML engine    Ask AutoDS router
+     │     profile/analytics    plan/train/evaluate  evidence/context/RAG
+     │            │                   │                  │
+     │            │                   ▼                  │
+     │            │              Celery worker           │
+     │            │                   │                  │
+     │            ▼                   ▼                  ▼
+     │     ┌──────────────────────────────────────────────────────────────┐
+     └─────│ PostgreSQL         Redis              Confined artifact store │
+           │ users/results      queue/rate limits  data/models/reports     │
+           └──────────────────────────────────────────────────────────────┘
+```
+
+## Docker runtime services
+
+| Service | Technology | Responsibility |
+|---|---|---|
+| `frontend` | React + Vite in development; React + Nginx in production | Browser UI, workflow pages, dashboards, Ask Q&A, history, reports, settings. |
+| `backend` | FastAPI, SQLAlchemy, Alembic | API, auth, ownership, input/output contracts, orchestration, health/readiness. |
+| `worker` | Celery | Queued training, evaluation, optimization, explainability, and report jobs. |
+| `postgres` | PostgreSQL | Authoritative users, metadata, plans, verified results, jobs, and bounded assistant memory. |
+| `redis` | Redis | Celery broker/result backend and distributed production rate-limit counters. |
+| `autods_storage` | Docker volume / configured directories | Uploaded files, trusted model artifacts, prediction CSVs, HTML/PDF reports. |
+
+Development exposes the UI on port `5173` and API on `8000`. The production overlay exposes Nginx on `8080` by default and proxies `/api/` to FastAPI. PostgreSQL and Redis are not intended to be public services.
 
 ## Frontend
 
-The React/Vite frontend is the browser-facing client. It renders backend health, CSV upload and profiles, objective confirmation, provider-attributed pipeline-plan review, baseline statuses, validation comparison, selected model/test metrics, confusion matrix, optimization result, native feature importance, prediction upload/download, and HTML report download. API calls are isolated in small client modules and configured with `VITE_API_BASE_URL`.
+The React frontend provides:
 
-## FastAPI backend
+- Password login/registration and optional Google Identity Services login.
+- Dashboard with persisted workspace information and a controlled multi-agent workflow summary.
+- New Experiment workflow: upload, profile, objective confirmation, plan, queued execution, results, optimization, explainability, predictions, and reports.
+- History for owner-scoped experiments and saved datasets.
+- Ask Q&A with separate Dataset Questions and Experiment Questions contexts.
+- Report history with HTML/PDF view/download actions.
+- Settings that change local workspace preferences, not datasets or ML results.
 
-FastAPI exposes versioned endpoints under `/api/v1`. Routes remain thin and delegate business operations to services. Pydantic models define request and response contracts. Centralized settings, logging, exception handling, database sessions, and Alembic migrations provide the application foundation.
+API clients use `VITE_API_BASE_URL`. The frontend never calculates trusted metrics and never connects directly to PostgreSQL, Redis, or artifact storage.
+
+## API layer
+
+FastAPI exposes versioned endpoints under `/api/v1`.
+
+| Group | Responsibilities |
+|---|---|
+| `/health`, `/health/ready` | Liveness and dependency readiness. Readiness checks PostgreSQL, Redis, expected Alembic revision, and a responding Celery worker. |
+| `/auth` | Password and optional Google ID-token authentication; AutoDS JWT issuance. |
+| `/datasets` | Owner-scoped CSV/XLSX lifecycle, worksheet selection, profiles, and safe analytics. |
+| `/experiments` | Objective confirmation, plans, queued ML actions, evaluation, optimization, explainability, predictions, reflections, and reports. |
+| `/jobs` | Background job state and experiment history/details. |
+| `/artifacts` | Owner-scoped prediction/report listing, display, and download. |
+| `/assistant` | Dataset, experiment, mixed, conversation, general, and research questions. |
+
+Routes remain thin. Pydantic schemas validate request/response contracts; service modules contain business logic; SQLAlchemy sessions isolate database access; Alembic manages migrations.
+
+## Identity, ownership, and data protection
+
+```text
+Credentials or Google ID token
+  -> server-side verification
+  -> AutoDS JWT
+  -> authenticated API request
+  -> owner-scoped metadata/artifact operation
+```
+
+- Passwords use Argon2 hashes and are never returned.
+- Google tokens are verified server-side using `GOOGLE_CLIENT_ID`; `VITE_GOOGLE_CLIENT_ID` only enables the browser button.
+- Datasets, experiments, jobs, reports, predictions, and assistant turns are scoped to their owner.
+- Production rate limiting uses Redis and fails closed. Development can use a local fallback if Redis is unavailable.
+- Secrets are injected through environment variables and excluded from Git and Docker build contexts.
+- Generated artifact paths are confined to configured storage roots; internal stored dataset filenames are not exposed through dataset responses.
 
 ## Dataset ingestion and profiling
 
-The dataset route streams multipart CSV uploads through the dataset service. The service validates filename/type, enforces the configured byte limit, generates a UUID filename, confines writes to the configured dataset directory, detects whether a header is present, and asks Pandas to parse the file before committing metadata. PostgreSQL stores the original display filename, internal stored filename, size, dimensions, header decision, and creation time; CSV content remains in artifact storage.
-
-Header detection samples up to 25 non-empty rows. It recognizes a header only when the first row consists entirely of plausible, unique textual column names and later values provide consistent numeric or boolean type evidence. Ambiguous input is treated as headerless to preserve its first row. Headerless datasets receive deterministic names (`column_1`, `column_2`, ...), and the persisted decision is reused on every profile read.
-
-A separate structural check recognizes a scikit-learn-style metadata preamble only when its declared feature count matches the row width, its sample count is plausible, its remaining cells are textual class labels, and sampled feature values are consistently numeric. That metadata row is skipped without being treated as a CSV header; generated names remain visible and the encoded label column is treated categorically.
-
-Migration marks pre-detection dataset records as having an unknown header state. The dataset service lazily re-detects those stored files on their next metadata or profile request, updates dimensions, and persists the decision before producing a response.
-
-The profiling service deterministically calculates dimensions, duplicates, missingness, Pandas and logical types, cardinality, constants, conservative possible-ID flags, bounded categorical frequencies, numerical statistics, and finite pairwise numeric correlations. Logical numeric inference uses actual values: object/string columns with at least 95% numeric non-null values are profiled numerically without changing their stored raw values or reported Pandas dtype. It does not call an LLM and converts non-finite statistics to JSON `null`.
-
-## Objective interpretation and confirmation
-
-The experiment service creates an experiment from a dataset ID and objective, then uses the trusted dataset schema and values to produce conservative target candidates. It matches normalized column names mentioned in the objective; it does not claim general natural-language understanding. Constant, unusable, high-cardinality categorical, and possible-ID columns are not automatically suggested.
-
-Categorical targets with two classes suggest binary classification, while categorical targets with more classes suggest multiclass classification. Numeric targets suggest regression unless they are low-cardinality integers, which remain explicitly ambiguous between classification and regression. Confirmation is a separate backend operation that validates the target against the stored dataset and validates task-specific class or numeric constraints. A valid confirmation changes the experiment status to `READY_FOR_PLANNING`; it does not create a pipeline.
-
-## Future multi-agent controller
-
-A controller will coordinate specialized agents for profiling, planning, training, evaluation, explanation, and reporting. Agents will exchange typed state and plans; they will not execute generated source code.
-
-## LLM router and structured planning
-
-The planning service constructs a bounded prompt from objective and profile metadata only. It sends column names, logical types, dimensions, missingness, cardinality, constant flags, and possible-ID flags; it never sends CSV rows or top-value samples. Gemini uses the current `google-genai` SDK as the primary provider. Ollama's `/api/chat` endpoint with a configurable model (default `qwen3:8b`) is the fallback.
-
-The router retries within configured bounds and falls back on provider errors, timeout, unavailability, rate limiting, malformed JSON, or local contract failure. If both providers fail, it returns a controlled error and persists nothing. Logs contain provider names and failure categories but not secrets, complete datasets, or prompt contents.
-
-Provider-native JSON schemas improve response reliability, but local `PipelinePlan` validation remains authoritative. Strict enums allow only supported preprocessing, models, and metrics. Cross-field validation rejects classification/regression mismatches and requires the plan task and target to exactly match the confirmed experiment.
-
-## Trusted execution rule
-
-Every future LLM-controlled operation must follow:
-
 ```text
-LLM -> structured JSON plan -> Pydantic validation -> registered trusted Python functions
+CSV/XLSX upload
+  -> extension/size/worksheet/parse validation
+  -> generated internal storage filename
+  -> owner-scoped dataset metadata in PostgreSQL
+  -> deterministic profile
+  -> profile + safe target/task recommendations in UI
 ```
 
-The runtime must reject invalid plans and unknown operations. It must never evaluate or execute arbitrary Python, shell commands, SQL, or serialized objects supplied by an LLM.
+The deterministic profiler calculates rows, columns, missingness, duplicates, Pandas/logical types, cardinality, constants, possible identifiers, bounded categorical frequencies, numeric summaries, and finite correlations. The Data Analyst Agent may interpret bounded profile metadata, but it does not replace those calculations.
 
-## Trusted preprocessing and baseline training
+Raw CSV/XLSX rows are not supplied to LLMs for numeric analysis.
 
-The training service loads the persisted validated plan, separates the confirmed target, and creates reproducible train/validation/test splits. Classification uses stratification when class counts and split sizes permit it and falls back cleanly when they do not. Possible-ID feature columns remain present.
+## Controlled multi-agent workflow
 
-A trusted registry maps validated names to scikit-learn and XGBoost factories. Numeric features use configured mean/median imputation and optional standard scaling. Categorical features use most-frequent imputation plus one-hot encoding with unknown-category handling. The `ColumnTransformer` is fit once on training data; validation and test data are transformed without fitting.
+```text
+Data Analyst Agent
+  Deterministic profile evidence and data-quality context
+       │
+       ▼
+ML Planner Agent
+  Structured task-compatible pipeline proposal
+       │
+       ▼
+Pydantic validation + adaptive decisions
+  Supported target/task/preprocessing/models/metrics only
+       │
+       ▼
+Trusted ML Engine
+  Train, evaluate, optimize, explain, predict, and persist
+       │
+       ▼
+Insight & Reflection Agent
+  Explains verified evidence and gives advisory next steps
+```
 
-Only requested allowlisted baselines are trained. Classification supports logistic regression, random forest, and XGBoost; regression supports ridge regression, random forest, and XGBoost. Each model failure is isolated and recorded. Successful trusted artifacts are written under configured model storage with generated filenames, while PostgreSQL stores metadata and references.
+These are controlled functional boundaries, not independent arbitrary-code agents.
 
-## Evaluation, optimization, and final artifacts
+## Objective, planning, and adaptive pipeline decisions
 
-The evaluation service loads only successful trusted artifacts and reconstructs the persisted validation/test rows from saved indices. It computes real classification or regression metrics from model predictions. All candidates are compared on validation data, and deterministic selection uses the plan's primary metric. Exact ties use model name then generated run ID. Only the selected candidate reaches the untouched test split.
+1. A user creates an experiment for a saved dataset and objective.
+2. Deterministic/profile-backed logic identifies conservative target/task candidates.
+3. The user confirms the target and task.
+4. The ML Planner receives only bounded profile metadata plus the confirmed target/task.
+5. Gemini is the primary structured provider; Ollama is the fallback.
+6. The `PipelinePlan` contract validates the provider response before execution.
+7. Adaptive services evaluate verified characteristics: dataset size, missingness, class balance, cardinality, outliers, feature types, text/datetime presence, dimensionality, and target distribution.
+8. The UI records each decision as decision, reason, evidence, and allowlisted action taken.
 
-The optimization service chooses the baseline selection result as the single promising candidate. Optuna receives bounded application-owned search spaces and trains on training data while measuring validation only. It never reads test rows. The optimized run is persisted as a normal trusted model artifact and comparison is rerun.
+Malformed provider output, invalid configuration, timeouts, or provider failures result in a controlled failure. No unvalidated partial plan can run.
 
-Native feature importances are used for forest/XGBoost models and coefficients for logistic/ridge models. Prediction CSVs are checked for all required feature columns, transformed by the final persisted pipeline, and saved using generated CSV filenames. HTML reports contain only persisted/calculated facts and remain available without an LLM.
+## Trusted ML engine
 
-## PostgreSQL
+### Training
 
-PostgreSQL stores dataset, experiment, validated plan, model-run, evaluation, optimization, prediction-run, and report metadata. `experiments.selected_model_run_id` freezes the currently selected model. CSV bytes, model binaries, prediction CSVs, and HTML reports remain in confined artifact storage rather than ordinary database rows. SQLAlchemy provides sessions and Alembic owns schema migrations.
+```text
+Persisted validated plan
+  -> owner-scoped dataset load
+  -> reproducible train / validation / untouched test split
+  -> fit preprocessing on training rows only
+  -> train registered allowlisted candidates
+  -> persist model-run metadata and artifact references
+```
 
-## Redis and Celery
+- Preprocessing is fit only on training data to avoid leakage.
+- Numeric, categorical, text, and safe datetime handling follow the persisted plan.
+- Candidate model factories are registered trusted implementations; no LLM code is executed.
+- Model artifacts use generated names under confined storage.
+- Local measurements such as training time, inference time when available, complexity summaries, and run status support benchmarking.
 
-Redis is provisioned now as infrastructure. Celery will later execute long-running profiling and ML workflows outside HTTP request processes. No Celery tasks exist yet.
+### Evaluation and model selection
 
-## Artifact storage
+- Candidate models are compared using the configured **validation** primary metric.
+- Selection and tie-breaking are deterministic.
+- Only the selected model is evaluated against the untouched final test partition.
+- Classification and regression results use task-specific metrics.
+- Benchmark UI shows persisted validation performance, timing, complexity, generalization evidence, and status. It does not invent a weighted AI score.
 
-The `storage/` tree separates uploaded datasets, trained model artifacts, generated prediction CSVs, and generated HTML reports. All generated artifact paths are UUID filenames and must resolve directly under their configured root. Storage contents are ignored by Git while directory markers remain tracked. A future storage abstraction can move artifacts to object storage without changing service interfaces.
+### Optimization, explainability, predictions, reports
 
-## Docker deployment
+- Optuna optimization uses bounded application-owned search spaces and never uses test rows for tuning.
+- Explainability uses supported native feature importances or model coefficients from trusted persisted artifacts.
+- Prediction uploads must provide required features and produce persisted output files.
+- HTML/PDF report generation uses persisted/calculated facts, task-specific diagnostics, feature analysis, existing prediction outputs, limitations, and recommendations.
 
-Docker Compose runs frontend, backend, PostgreSQL, and Redis services with health checks and dependency ordering. Environment variables provide all deployment-specific values and secrets.
+## Background jobs
+
+```text
+UI action
+  -> FastAPI creates PENDING job in PostgreSQL
+  -> Celery message through Redis
+  -> worker executes trusted service
+  -> result reference / status persisted
+  -> frontend polls job and refreshes experiment detail
+```
+
+Supported queued types are `train`, `evaluate`, `optimize`, `explain`, and `report`. The worker records `PENDING`, `RUNNING`, `COMPLETED`, or `FAILED`, uses bounded retries, and stores safe error summaries without secrets or raw data.
+
+## Ask AutoDS
+
+### Context-aware evidence routing
+
+```text
+Question + selected context + bounded previous turns
+  -> evidence router
+  -> dataset | experiment | dataset+experiment | conversation | general | research
+  -> safe handler
+  -> provenance-labelled answer
+  -> bounded persisted assistant turn
+```
+
+The router uses selected context, dataset schema, persisted experiment evidence, question signals, and bounded conversation context. A Dataset Question is never sent to experiment retrieval merely because an experiment exists.
+
+### Dataset Questions
+
+```text
+Natural-language question
+  -> generic local planner or structured provider fallback
+  -> DatasetAnalyticsPlan Pydantic validation
+  -> allowlisted Pandas/NumPy analytics executor
+  -> verified answer, table/chart data, calculation explanation
+```
+
+Supported operations are bounded filtering, aggregation, grouping, ranking, sorting, distributions, correlations, associations, outlier summaries, comparisons, and safe derived calculations. The schemas bound filters, grouping, rows, columns, operators, and aggregations.
+
+Arbitrary Python, SQL, `eval`, `exec`, imports, paths, URLs, and shell commands are forbidden.
+
+### Experiment Questions and other evidence
+
+- **Experiment:** retrieves owner-scoped persisted task/target, plan, model runs, validation comparison, final-test metrics, optimization, predictions/reports, and compatible historical evidence. It never invents a metric.
+- **Mixed:** compares supported persisted experiment metrics with safe local dataset statistics only when the link is unambiguous.
+- **Conversation:** stores a bounded history of intent/context; numeric results are recalculated instead of copied from an earlier answer.
+- **General:** provider output must satisfy a structured claim-basis response and is displayed as **AI Explanation**, not as a verified result.
+- **Research:** local curated AutoML/data-science papers provide advisory sources only. RAG cannot alter training, model selection, metrics, or execution.
+
+Each answer has an evidence type and provenance label, including **Verified from dataset**, **Verified from experiment**, **Verified from dataset + experiment**, **Retrieved research evidence**, or **AI Explanation**.
+
+## Persistence and artifact model
+
+| Domain | PostgreSQL records |
+|---|---|
+| Identity | users and Google identity linkage |
+| Datasets | owner, metadata, lifecycle state; not raw dataset bytes |
+| Experiments | objective, confirmed task/target, selected model reference, status |
+| ML | validated plans, model runs, evaluation results, optimization results |
+| Artifacts | prediction runs and report records linked to confined files |
+| Operations | jobs and safe status/error metadata |
+| Assistant | bounded owner-scoped turns and source metadata |
+
+Raw data, model binaries, prediction CSVs, and HTML/PDF files live under configured artifact storage, not database rows.
+
+## Deployment and health flow
+
+```text
+Docker Compose
+  -> PostgreSQL + Redis become healthy
+  -> backend applies Alembic migrations and starts FastAPI
+  -> worker connects to Redis and registers tasks
+  -> backend readiness verifies DB, Redis, migration revision, worker response
+  -> frontend starts after backend is healthy
+```
+
+Production uses protected environment variables, persistent volumes, and a reverse proxy/TLS layer. See [FREE_DEPLOYMENT_GUIDE.md](FREE_DEPLOYMENT_GUIDE.md) for deployment instructions.
+
+## Explicit limitations
+
+- LLMs are not trusted numeric sources and cannot execute generated code.
+- Offline curated RAG is advisory, not live scholarly search.
+- Historical experiments are context, not a guarantee for a different dataset.
+- Feature importance and correlation are associative, not causal.
+- Free cloud resources can constrain training, uptime, worker capacity, and storage; these constraints do not relax safety rules.
+- Report prediction sections describe already persisted predictions for user-supplied feature rows. They are not automatic forecasts unless the explicit time-series capability is used on suitable data.

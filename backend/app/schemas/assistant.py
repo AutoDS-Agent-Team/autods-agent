@@ -52,6 +52,16 @@ class AssistantSource(BaseModel):
     dataset_id: str | None = None
     document_type: str = "verified_experiment_summary"
 
+
+class GeneralExplanationClaim(BaseModel):
+    claim: str = Field(min_length=1, max_length=500)
+    basis: Literal["general_knowledge", "curated_research"]
+
+
+class GeneralExplanationResponse(BaseModel):
+    explanation: str = Field(min_length=1, max_length=3000)
+    claims: list[GeneralExplanationClaim] = Field(default_factory=list, max_length=8)
+
 class AssistantQueryResponse(BaseModel):
     answer: str
     sources: list[AssistantSource]

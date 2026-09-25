@@ -11,7 +11,7 @@ from app.services.assistant_conversation_service import resolve_follow_up
 from app.services.assistant_service import _deduplicate, answer_question
 import pandas as pd
 from app.services.question_planner_service import plan_open_ended_dataset_question
-from app.services.assistant_orchestration_service import _mixed_answer
+from app.services.assistant_orchestration_service import _general_answer, _mixed_answer
 
 
 def test_routing_contract_rejects_contradictory_evidence_flags() -> None:
@@ -97,3 +97,15 @@ def test_mixed_answer_preserves_multiple_requested_persisted_metrics() -> None:
     assert answer is not None
     _, structured = answer
     assert [item["name"] for item in structured["experiment_metrics"]] == ["accuracy", "precision"]
+
+
+def test_general_explanation_requires_structured_claim_basis() -> None:
+    class Provider:
+        name = "test-provider"
+
+        def generate_structured(self, _prompt, _schema):
+            return {"explanation": "RMSE summarizes the typical size of prediction errors.", "claims": [{"claim": "This is general guidance.", "basis": "general_knowledge"}]}
+
+    answer, provider = _general_answer("What does RMSE mean?", [Provider()])
+    assert provider == "test-provider"
+    assert "AI Explanation" in answer and "RMSE" in answer

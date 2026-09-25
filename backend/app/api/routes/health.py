@@ -24,8 +24,8 @@ def readiness_check(database: Session = Depends(get_db), settings: Settings = De
         redis.ping()
         redis.close()
         migration = database.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar_one_or_none()
-        if not migration:
-            raise RuntimeError("No applied migration found")
+        if migration != settings.expected_migration_revision:
+            raise RuntimeError("Database migration is not at the required revision")
         from app.worker import celery_app
         
         workers = celery_app.control.ping(timeout=1.0) or []

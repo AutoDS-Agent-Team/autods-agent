@@ -1,4 +1,20 @@
+# Secrets and machine-specific configuration. Keep the redacted template only.
 .env
+.env.*
+!.env.example
+.envrc
+
+# Private keys, certificates, local databases, and application logs.
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.db
+*.log
+logs/
+secrets/
 .venv/
 backend/build/
 backend/pytest-cache-files-*/
@@ -16,6 +32,7 @@ htmlcov/
 node_modules/
 dist/
 .vite/
+test-results/
 
 .idea/
 .vscode/
@@ -29,3 +46,4 @@ storage/predictions/*
 !storage/datasets/.gitkeep
 !storage/models/.gitkeep
 !storage/reports/.gitkeep
+!storage/predictions/.gitkeep

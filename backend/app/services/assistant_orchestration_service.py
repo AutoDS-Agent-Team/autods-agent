@@ -13,7 +13,7 @@ from app.models.dataset import Dataset
 from app.models.experiment import Experiment
 from app.models.user import User
 from app.schemas.analytics import Aggregation, AnalyticsPlanStep, DatasetAnalyticsPlan, PlanStepOperation
-from app.schemas.assistant import AssistantQueryRequest, AssistantQueryResponse, AssistantSource, EvidenceRoutingDecision
+from app.schemas.assistant import AssistantQueryRequest, AssistantQueryResponse, AssistantSource, EvidenceRoutingDecision, GeneralExplanationResponse
 from app.services.analytics_service import execute_analytics_plan
 from app.services.assistant_conversation_service import (
     conversation_context,
@@ -82,18 +82,23 @@ def _general_answer(question: str, providers: list[LLMProvider], research: list[
     research = research or []
     evidence = "\n".join(f"- {item['title']} ({item['year']}, {item['venue']}): {item['evidence_summary']}" for item in research)
     prompt = (
-        "Give a concise general data-science explanation. Do not claim any dataset, experiment, model metric, or citation that is not supplied. "
+        "Return JSON matching the supplied schema. Give a concise general data-science explanation. "
+        "Every claim must be labelled general_knowledge or curated_research. Do not claim any dataset, experiment, model metric, or citation that is not supplied. "
         "This is general guidance, not a verified AutoDS result."
         + (f"\nCurated research evidence:\n{evidence}" if evidence else "")
         + f"\nQuestion: {question}"
     )
     for provider in providers:
         try:
-            text = provider.generate_text(prompt).strip()
+            raw = provider.generate_structured(prompt, GeneralExplanationResponse.model_json_schema())
+            parsed = GeneralExplanationResponse.model_validate_json(raw) if isinstance(raw, str) else GeneralExplanationResponse.model_validate(raw)
+            if any(claim.basis == "curated_research" for claim in parsed.claims) and not research:
+                continue
+            text = parsed.explanation.strip()
             if text:
                 sources = "\n\n### Retrieved sources\n" + "\n".join(f"- [{item['title']}]({item['source_url']})" for item in research) if research else ""
                 return f"### AI Explanation\n\n{text[:4000]}{sources}", provider.name
-        except ProviderFailure:
+        except (ProviderFailure, ValueError):
             continue
     if research:
         sources = "\n".join(f"- [{item['title']}]({item['source_url']})" for item in research)
