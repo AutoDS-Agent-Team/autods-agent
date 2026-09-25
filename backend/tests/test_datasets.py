@@ -43,7 +43,7 @@ def test_valid_csv_upload_and_metadata_lookup(test_app: FastAPI) -> None:
     assert uploaded["has_header"] is True
     assert uploaded["generated_column_names"] is False
     assert uploaded["file_size"] > 0
-    assert uploaded["stored_filename"].endswith(".csv")
+    assert len(list((test_app.state.testing_settings.dataset_storage_path).glob("*.csv"))) == 1
 
     metadata_response = request(
         test_app,
@@ -300,5 +300,5 @@ def test_unsafe_filename_cannot_escape_storage_directory(
     assert payload["original_filename"] == "escaped.csv"
     stored_files = list((test_storage_path / "datasets").glob("*.csv"))
     assert len(stored_files) == 1
-    assert stored_files[0].name == payload["stored_filename"]
+    assert stored_files[0].suffix == ".csv"
     assert not (test_storage_path / "escaped.csv").exists()

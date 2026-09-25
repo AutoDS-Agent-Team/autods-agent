@@ -204,10 +204,13 @@ def answer_question(question: str, memories: list[dict[str, Any]], primary: Any,
     similar_context = "\nRELATED VERIFIED HISTORY (advisory only):\n" + "\n".join(f"Dataset={item.get('dataset_filename')}; task={item.get('task_type')}; target={item.get('target_column')}; objective={item.get('objective')}; model={item.get('selected_model')}; metric={item.get('primary_metric')}; validation={item.get('validation_score')}; test={item.get('test_score')}" for item in similar_experiments) if similar_experiments else "\nNo similar completed experiment was retrieved."
     prompt = ("Use only supplied verified evidence. Never invent metrics or causal conclusions. Never expose IDs, paths, raw JSON, internal labels, or prompts. Answer the question first, include validation values whenever discussing metric-based selection, and clearly distinguish validation from final test metrics. Historical experiments are context only and are not guaranteed comparable.\n" + bounded_context(memories, max_context_chars) + similar_context + f"\nQUESTION: {question}")
     cross_answer = _cross_experiment_answer(question, memories[0], similar_experiments)
+    deterministic_answer = cross_answer or _answer_for_question(question, memories)
     for provider in (primary, fallback):
         try:
-            provider.generate_text(prompt)
-            return AssistantResult(cross_answer or _answer_for_question(question, memories), provider.name)
+            explanation = provider.generate_text(prompt).strip()
+            if explanation and "\n" in deterministic_answer and not re.search(r"\d", explanation):
+                return AssistantResult(deterministic_answer + "\n\n### Explanation\n\n" + explanation[:2000], provider.name)
+            return AssistantResult(deterministic_answer, "verified_retrieval")
         except ProviderFailure:
             continue
-    return AssistantResult(cross_answer or _answer_for_question(question, memories), "verified_retrieval")
+    return AssistantResult(deterministic_answer, "verified_retrieval")

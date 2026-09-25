@@ -27,7 +27,7 @@ from app.services.assistant_service import answer_question
 from app.services.dataset_answer_presentation_service import enrich_verified_dataset_result, format_verified_dataset_answer
 from app.services.dataset_service import get_dataset_metadata, load_dataset_dataframe
 from app.services.experiment_memory_service import retrieve_similar_experiments, retrieve_verified_memory
-from app.services.question_planner_service import UNSUPPORTED_QUESTION, plan_open_ended_dataset_question
+from app.services.question_planner_service import UNSUPPORTED_QUESTION, _column, plan_open_ended_dataset_question
 from app.services.research_rag_service import retrieve_research
 
 
@@ -109,22 +109,36 @@ def _mixed_answer(question: str, frame: pd.DataFrame, dataset: Dataset, memory: 
     target = memory.get("target_column")
     if not metrics or not target or target not in frame.columns:
         return None
-    statistic = Aggregation.MEDIAN if "median" in lower else Aggregation.MEAN
-    plan = DatasetAnalyticsPlan(steps=[AnalyticsPlanStep(operation=PlanStepOperation.AGGREGATE, column=target, aggregation=statistic)])
-    dataset_result = execute_analytics_plan(frame, plan, dataset.original_filename)
-    baseline = dataset_result.value
+    requested_statistics = []
+    for match in re.finditer(r"\b(average|mean|median|sum|total)\s+(?:of\s+)?([a-z0-9 _-]+?)(?=\s+(?:and|with|versus|vs|against|compared)|[,?]|$)", lower):
+        column = _column(frame, match.group(2).strip())
+        if column and pd.api.types.is_numeric_dtype(frame[column]):
+            aggregation = Aggregation.MEDIAN if match.group(1) == "median" else Aggregation.SUM if match.group(1) in {"sum", "total"} else Aggregation.MEAN
+            requested_statistics.append((column, aggregation))
+    if not requested_statistics:
+        requested_statistics = [(target, Aggregation.MEDIAN if "median" in lower else Aggregation.MEAN)]
+    dataset_statistics = []
+    for column, statistic in requested_statistics:
+        plan = DatasetAnalyticsPlan(steps=[AnalyticsPlanStep(operation=PlanStepOperation.AGGREGATE, column=column, aggregation=statistic)])
+        dataset_result = execute_analytics_plan(frame, plan, dataset.original_filename)
+        if not isinstance(dataset_result.value, (int, float)):
+            return None
+        dataset_statistics.append((column, statistic, dataset_result))
+    target, statistic = dataset_statistics[0][0], dataset_statistics[0][1]
+    baseline = dataset_statistics[0][2].value
     metric_values = {metric: final.get(metric) for metric in metrics}
     if any(not isinstance(value, (int, float)) for value in metric_values.values()) or not isinstance(baseline, (int, float)) or baseline == 0:
         return None
-    if len(metrics) > 1:
+    if len(metrics) > 1 or len(dataset_statistics) > 1:
         answer = "### Verified dataset + experiment comparison\n\n"
         answer += "\n".join(f"- **Final test {_metric_label(metric)} (experiment):** **{_format_metric(metric, float(metric_values[metric]))}**" for metric in metrics)
-        answer += f"\n- **{statistic.value.title()} {target} (dataset):** **{float(baseline):,.3f}**\n\nVerified persisted experiment metrics were compared with the trusted dataset statistic."
+        answer += "\n" + "\n".join(f"- **{statistic.value.title()} {column} (dataset):** **{float(result.value):,.3f}**" for column, statistic, result in dataset_statistics)
+        answer += "\n\nVerified persisted experiment metrics were compared with trusted dataset statistics."
         return answer, {
             "answer_type": "mixed",
             "title": f"Experiment metrics compared with {statistic.value} {target}",
             "experiment_metrics": [{"name": metric, "value": metric_values[metric]} for metric in metrics],
-            "dataset_statistic": {"column": target, "aggregation": statistic.value, "value": baseline},
+            "dataset_statistics": [{"column": column, "aggregation": statistic.value, "value": result.value} for column, statistic, result in dataset_statistics],
             "calculation": dataset_result.calculation,
         }
     metric = metrics[0]
@@ -269,7 +283,9 @@ def answer_context_aware_question(
         else:
             answer, structured = mixed
             response = AssistantQueryResponse(answer=answer, provider_used="trusted_analytics", sources=[AssistantSource(dataset_id=dataset.id, document_type="verified_dataset_calculation"), AssistantSource(experiment_id=experiment.id, document_type="verified_experiment_summary")], structured_result=structured, evidence_type="dataset_experiment", provenance_label="Verified from dataset + experiment", conversation_id=request.conversation_id)
-            columns = [structured["dataset_statistic"]["column"]]
+            statistic = structured.get("dataset_statistic")
+            statistics = structured.get("dataset_statistics", [])
+            columns = ([statistic["column"]] if statistic else []) + [item["column"] for item in statistics]
         save_turn(database, user_id=user.id, conversation_id=request.conversation_id, dataset_id=dataset.id, experiment_id=experiment.id, question=request.question, resolved_question=resolved_question, answer=response.answer, evidence_type=response.evidence_type, referenced_columns=columns, analytical_topic="mixed comparison", source_types=[source.document_type for source in response.sources])
         return response
 

@@ -19,7 +19,7 @@ def test_saved_dataset_lists_and_reloads_from_persisted_file(test_app: FastAPI, 
     assert listed.status_code == 200
     assert [item["id"] for item in listed.json()["items"]] == [uploaded["id"]]
     assert listed.json()["items"][0]["status"] == "READY"
-    assert (test_storage_path / "datasets" / uploaded["stored_filename"]).is_file()
+    assert len(list((test_storage_path / "datasets").glob("*.csv"))) == 1
 
     # A new request loads the stored file again, rather than relying on upload-time memory.
     profile = request(test_app, "GET", f"/api/v1/datasets/{uploaded['id']}/profile")
@@ -55,7 +55,7 @@ def test_list_is_scoped_and_delete_removes_only_owner_dataset(test_app: FastAPI,
     deleted = request(test_app, "DELETE", f"/api/v1/datasets/{other_dataset['id']}")
     assert deleted.status_code == 200
     assert deleted.json() == {"dataset_id": other_dataset["id"], "deleted": True}
-    assert not (test_storage_path / "datasets" / other_dataset["stored_filename"]).exists()
+    assert len(list((test_storage_path / "datasets").glob("*.csv"))) == 1
 
 
 def test_delete_refuses_dataset_with_existing_experiment(test_app: FastAPI) -> None:

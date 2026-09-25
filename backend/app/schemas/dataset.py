@@ -8,7 +8,7 @@ class DatasetResponse(BaseModel):
 
     id: str
     original_filename: str
-    stored_filename: str
+    # stored_filename: str
     file_size: int
     row_count: int
     column_count: int
