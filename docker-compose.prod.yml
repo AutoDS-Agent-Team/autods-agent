@@ -1,0 +1,31 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+    ports:
+      - "${PRODUCTION_HTTP_PORT:-8080}:80"
+    volumes: []
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+  backend:
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - autods_storage:/app/storage
+  worker:
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - autods_storage:/app/storage
+  postgres:
+    restart: unless-stopped
+  redis:
+    restart: unless-stopped
+volumes:
+  autods_storage:

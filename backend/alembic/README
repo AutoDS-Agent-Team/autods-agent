@@ -1,0 +1,2 @@
+Alembic migration environment for AutoDS-Agent. Generate revisions only when persistent models are introduced.
+

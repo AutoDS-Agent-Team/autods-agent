@@ -1,0 +1,126 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host $${BACKEND_HOST:-0.0.0.0} --port $${BACKEND_PORT:-8000} --reload"
+    environment:
+      APP_ENV: ${APP_ENV}
+      BACKEND_HOST: ${BACKEND_HOST}
+      BACKEND_PORT: ${BACKEND_PORT}
+      FRONTEND_URL: ${FRONTEND_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER}
+      CELERY_TASK_MAX_RETRIES: ${CELERY_TASK_MAX_RETRIES}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
+      JWT_ACCESS_TOKEN_MINUTES: ${JWT_ACCESS_TOKEN_MINUTES}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB}
+      DATASET_STORAGE_PATH: ${DATASET_STORAGE_PATH}
+      MODEL_STORAGE_PATH: ${MODEL_STORAGE_PATH}
+      PREDICTION_STORAGE_PATH: ${PREDICTION_STORAGE_PATH}
+      REPORT_STORAGE_PATH: ${REPORT_STORAGE_PATH}
+      PROFILE_TOP_VALUES_LIMIT: ${PROFILE_TOP_VALUES_LIMIT}
+      TRAINING_RANDOM_STATE: ${TRAINING_RANDOM_STATE}
+      TRAINING_VALIDATION_SIZE: ${TRAINING_VALIDATION_SIZE}
+      TRAINING_TEST_SIZE: ${TRAINING_TEST_SIZE}
+      OPTUNA_N_TRIALS: ${OPTUNA_N_TRIALS}
+      OPTUNA_TIMEOUT_SECONDS: ${OPTUNA_TIMEOUT_SECONDS}
+      SHAP_MAX_SAMPLES: ${SHAP_MAX_SAMPLES}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GEMINI_MODEL: ${GEMINI_MODEL}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+    ports:
+      - "${BACKEND_PORT}:${BACKEND_PORT}"
+    volumes:
+      - ./backend:/app
+      - autods_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, urllib.request; port = os.environ.get('BACKEND_PORT', '8000'); urllib.request.urlopen(f'http://localhost:{port}/api/v1/health/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+    command: celery -A app.worker.celery_app worker --loglevel=INFO --concurrency=1
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER}
+      CELERY_TASK_MAX_RETRIES: ${CELERY_TASK_MAX_RETRIES}
+      DATASET_STORAGE_PATH: ${DATASET_STORAGE_PATH}
+      MODEL_STORAGE_PATH: ${MODEL_STORAGE_PATH}
+      PREDICTION_STORAGE_PATH: ${PREDICTION_STORAGE_PATH}
+      REPORT_STORAGE_PATH: ${REPORT_STORAGE_PATH}
+      OPTUNA_N_TRIALS: ${OPTUNA_N_TRIALS}
+      OPTUNA_TIMEOUT_SECONDS: ${OPTUNA_TIMEOUT_SECONDS}
+      SHAP_MAX_SAMPLES: ${SHAP_MAX_SAMPLES}
+    volumes:
+      - ./backend:/app
+      - autods_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  frontend_node_modules:
+  autods_storage:

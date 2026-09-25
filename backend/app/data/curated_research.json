@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "papers": [
+    {
+      "id": "automl-survey-2019",
+      "title": "Automated Machine Learning: State-of-the-Art and Open Challenges",
+      "authors": ["Radwa Elshawi", "Mohamed Maher", "Sherif Sakr"],
+      "year": 2019,
+      "venue": "arXiv:1906.02287",
+      "source_url": "https://arxiv.org/abs/1906.02287",
+      "chunks": [
+        {
+          "topics": ["automl", "pipeline", "data understanding", "preprocessing", "deployment"],
+          "text": "The survey frames AutoML as a pipeline-wide problem, spanning data understanding and preparation through algorithm selection, hyperparameter tuning, and post-model deployment. It highlights that upstream pipeline decisions can affect model outcomes. Use this as context for reviewing data quality and preprocessing, not as evidence that one configuration is best for a particular dataset."
+        },
+        {
+          "topics": ["automl", "optimization", "validation", "time budget", "cost"],
+          "text": "For combined algorithm selection and hyperparameter optimization, the survey describes choosing and tuning candidates against a user-defined validation metric within a user-defined search-time budget. This supports reporting both validation quality and elapsed search time; it does not prescribe a universal quality-versus-cost exchange rate."
+        },
+        {
+          "topics": ["memory", "meta-learning", "similar tasks", "previous experiments"],
+          "text": "The survey describes meta-learning approaches that use task properties and prior model evaluations to warm-start future AutoML searches. Transfer between tasks depends on similarity and should be checked on the new task; historical outcomes are useful priors, not substitutes for current validation."
+        }
+      ]
+    },
+    {
+      "id": "autosklearn-2-2020",
+      "title": "Auto-Sklearn 2.0: Hands-free AutoML via Meta-Learning",
+      "authors": ["Matthias Feurer", "Katharina Eggensperger", "Stefan Falkner", "Marius Lindauer", "Frank Hutter"],
+      "year": 2020,
+      "venue": "arXiv:2007.04074",
+      "source_url": "https://arxiv.org/abs/2007.04074",
+      "chunks": [
+        {
+          "topics": ["automl", "optimization", "time budget", "successive halving", "compute"],
+          "text": "Auto-sklearn 2.0 studies portfolio-based search, successive-halving resource allocation, and policy selection for AutoML under time constraints. The paper motivates making search budgets explicit and allocating effort to promising candidates. Its benchmark results are specific to its evaluated systems and datasets and should not be presented as expected performance for this experiment."
+        },
+        {
+          "topics": ["memory", "meta-learning", "prior experiments", "dataset similarity"],
+          "text": "The work uses meta-learning from previous tasks to guide optimization-policy choice for a new dataset. This motivates retrieving similar past experiments as advisory context while still evaluating the current dataset independently."
+        }
+      ]
+    },
+    {
+      "id": "tpot-2016",
+      "title": "TPOT: A Tree-based Pipeline Optimization Tool for Automating Machine Learning",
+      "authors": ["Randal S. Olson", "Jason H. Moore"],
+      "year": 2016,
+      "venue": "Proceedings of Machine Learning Research, volume 64",
+      "source_url": "https://proceedings.mlr.press/v64/olson_tpot_2016.html",
+      "chunks": [
+        {
+          "topics": ["automl", "pipeline", "feature preprocessing", "classification", "optimization"],
+          "text": "TPOT presents a genetic-programming AutoML approach that searches sequences of feature preprocessors and machine-learning models for supervised classification. The paper demonstrates pipeline search as a design pattern; its reported benchmark outcomes are not guarantees for other datasets or tasks."
+        }
+      ]
+    },
+    {
+      "id": "hidden-technical-debt-2015",
+      "title": "Hidden Technical Debt in Machine Learning Systems",
+      "authors": ["D. Sculley", "Gary Holt", "Daniel Golovin", "Eugene Davydov", "Todd Phillips", "Dietmar Ebner", "Vinay Chaudhary", "Michael Young", "Jean-François Crespo", "Dan Dennison"],
+      "year": 2015,
+      "venue": "Advances in Neural Information Processing Systems 28",
+      "source_url": "https://proceedings.neurips.cc/paper/2015/hash/86df7dcfd896fcaf2674f757a2463eba-Abstract.html",
+      "chunks": [
+        {
+          "topics": ["data quality", "reproducibility", "deployment", "monitoring", "limitations"],
+          "text": "This paper analyzes maintenance risks in real-world ML systems, including data dependencies, configuration issues, changing external conditions, and system-level anti-patterns. It supports documenting data provenance and validating models on future or external data; it does not measure the risks present in this uploaded dataset."
+        }
+      ]
+    },
+    {
+      "id": "data-cascades-2021",
+      "title": "'Everyone wants to do the model work, not the data work': Data Cascades in High-Stakes AI",
+      "authors": ["Nithya Sambasivan", "Shivani Kapania", "Hannah Highfill", "Diana Akrong", "Praveen Paritosh", "Lora M. Aroyo"],
+      "year": 2021,
+      "venue": "CHI Conference on Human Factors in Computing Systems",
+      "source_url": "https://doi.org/10.1145/3411764.3445518",
+      "chunks": [
+        {
+          "topics": ["data quality", "missing values", "dataset documentation", "high stakes", "limitations"],
+          "text": "This qualitative study reports practitioner experiences with data practices in high-stakes AI and describes how unresolved data issues can cascade through later system work. It motivates making data-quality findings and limitations visible to users. It is not a dataset-specific diagnosis or a quantitative estimate of risk for this experiment."
+        }
+      ]
+    }
+  ]
+}

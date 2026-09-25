@@ -1,0 +1,1 @@
+export default function ModelsPage() { return <><header className="page-header"><p className="eyebrow">Experiment artifacts</p><h1>Models</h1><p>Open an experiment from History to view its persisted model comparison and selected model.</p></header></> }

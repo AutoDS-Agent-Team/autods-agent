@@ -1,0 +1,1 @@
+export default function ReportsPage() { return <><header className="page-header"><p className="eyebrow">Experiment artifacts</p><h1>Reports</h1><p>HTML and PDF reports remain available from each persisted experiment.</p></header></> }

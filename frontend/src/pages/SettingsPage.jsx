@@ -1,0 +1,1 @@
+export default function SettingsPage() { return <><header className="page-header"><p className="eyebrow">Account</p><h1>Settings</h1><p>Authentication and account settings are managed securely through the existing account service.</p></header></> }
