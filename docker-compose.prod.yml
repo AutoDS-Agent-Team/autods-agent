@@ -6,26 +6,40 @@ services:
       args:
         VITE_API_BASE_URL: /api
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
-    ports:
+    ports: !override
       - "${PRODUCTION_HTTP_PORT:-8080}:80"
-    volumes: []
+    volumes: !override []
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
   backend:
-    restart: unless-stopped
-    env_file: .env
-    volumes:
+    command:
+      - sh
+      - -c
+      - "alembic upgrade head && uvicorn app.main:app --host ${BACKEND_HOST:-0.0.0.0} --port ${BACKEND_PORT:-8000}"
+    ports: !override []
+    volumes: !override
       - autods_storage:/app/storage
+    env_file:
+      - .env
+    restart: unless-stopped
+
   worker:
-    restart: unless-stopped
-    env_file: .env
-    volumes:
+    volumes: !override
       - autods_storage:/app/storage
+    env_file:
+      - .env
+    restart: unless-stopped
+
   postgres:
+    ports: !override []
     restart: unless-stopped
+
   redis:
+    ports: !override []
     restart: unless-stopped
+
 volumes:
   autods_storage:
